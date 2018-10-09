@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <DNSServer.h>
 #include <WiFiManager.h>
+#include <ESP8266httpUpdate.h>
 
 #include "BoodskapTransceiver.h"
 #include "BoodskapUdpCommunicator.h"
@@ -15,7 +16,7 @@ extern "C" {
 
 bool saveConfig = false;
 BoodskapCommunicator* _comm;
-
+ESP8266HTTPUpdate* ESPUPDATE = new ESP8266HTTPUpdate(24000);
 
 BoodskapTransceiver::BoodskapTransceiver(TransceiverMode mode) : _mode(mode), _lastSent(0), _lastConnected(0)
 {
@@ -39,6 +40,7 @@ void BoodskapTransceiver::setup(JsonObject& config) {
   _deviceModel = config["dev_model"].as<String>();
   _firmwareVersion = config["fw_ver"].as<String>();
   _apiBasePath = config["api_path"].as<String>();
+  _otaBasePath = config["ota_path"].as<String>();
   _apiFingerprint = config["api_fp"].as<String>();
   _udpHost = config["udp_host"].as<String>();
   _udpPort = config["udp_port"];
@@ -54,6 +56,7 @@ void BoodskapTransceiver::setup(JsonObject& config) {
   DEBUG.printf("dev_model: %s\n", _deviceModel.c_str());
   DEBUG.printf("fw_ver: %s\n", _firmwareVersion.c_str());
   DEBUG.printf("api_path: %s\n", _apiBasePath.c_str());
+  DEBUG.printf("ota_path: %s\n", _otaBasePath.c_str());
   DEBUG.printf("api_fp: %s\n", _apiFingerprint.c_str());
   DEBUG.printf("udp_host: %s\n", _udpHost.c_str());
   DEBUG.printf("udp_port: %d\n", _udpPort);
@@ -84,6 +87,7 @@ void BoodskapTransceiver::runConfigServer() {
   WiFiManagerParameter _p_akey("akey", "API Key", _apiKey.c_str(), 15);
   WiFiManagerParameter _p_did("did", "Device ID", _deviceId.c_str(), 25);
   WiFiManagerParameter _p_api_url("api_url", "API Base URL", _apiBasePath.c_str(), 40);
+  WiFiManagerParameter _p_ota_url("ota_url", "OTA Base URL", _otaBasePath.c_str(), 40);
   WiFiManagerParameter _p_api_fp("api_fp", "API HTTPS Fingerprint", _apiFingerprint.c_str(), 60);
   WiFiManagerParameter _p_udp_host("udp_host", "UDP Host/IP", _udpHost.c_str(), 40);
   WiFiManagerParameter _p_udp_port("udp_port", "UDP Port", String(_udpPort).c_str(), 8);
@@ -95,6 +99,7 @@ void BoodskapTransceiver::runConfigServer() {
   wifiManager.addParameter(&_p_akey);
   wifiManager.addParameter(&_p_did);
   wifiManager.addParameter(&_p_api_url);
+  wifiManager.addParameter(&_p_ota_url);
   wifiManager.addParameter(&_p_api_fp);
   wifiManager.addParameter(&_p_udp_host);
   wifiManager.addParameter(&_p_udp_port);
@@ -122,6 +127,7 @@ void BoodskapTransceiver::runConfigServer() {
     root["api_key"] = _p_akey.getValue();
     root["dev_id"] = _p_did.getValue();
     root["api_path"] = _p_api_url.getValue();
+    root["ota_path"] = _p_ota_url.getValue();
     root["api_fp"] = _p_api_fp.getValue();
     root["udp_host"] = _p_udp_host.getValue();
     root["udp_port"] = String(_p_udp_port.getValue()).toInt();
@@ -324,24 +330,24 @@ void BoodskapTransceiver::doOTA(String model, String version)
   char API_URL[API_URL_LEN];
   t_httpUpdate_return ret;
 
-  sprintf(API_URL, "%s/mservice/esp8266/ota?dkey=%s&akey=%s&dmodel=%s&fwver=%s", _apiBasePath.c_str(), _domainKey.c_str(), _apiKey.c_str(), model.c_str(), version.c_str());
+  sprintf(API_URL, "%s/esp8266/ota?dkey=%s&akey=%s&dmodel=%s&fwver=%s", _otaBasePath.c_str(), _domainKey.c_str(), _apiKey.c_str(), model.c_str(), version.c_str());
 
-  bool https = String(_apiBasePath).startsWith("https");
+  bool https = String(_otaBasePath).startsWith("https:");
 
   DEBUG.printf("New firmware from %s URL: ", https ? "ENCRYPTED" : "PLAIN");
   DEBUG.println(API_URL);
 
   if (https) {
-    ret = ESPhttpUpdate.update(API_URL, "", _apiFingerprint.c_str());
+    ret = ESPUPDATE->update(API_URL, "", _apiFingerprint.c_str());
   } else {
-    ret = ESPhttpUpdate.update(API_URL, "");
+    ret = ESPUPDATE->update(API_URL, "");
   }
 
   switch (ret)
   {
     default:
     case HTTP_UPDATE_FAILED:
-      DEBUG.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+      DEBUG.printf("HTTP_UPDATE_FAILED Error (%d): %s\n", ESPUPDATE->getLastError(), ESPUPDATE->getLastErrorString().c_str());
       break;
 
     case HTTP_UPDATE_NO_UPDATES:
@@ -472,4 +478,3 @@ void BoodskapTransceiver::parseIncoming(byte *data)
     sendAck(header, corrId, ack ? 1 : 0);
   }
 }
-
