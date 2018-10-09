@@ -117,6 +117,7 @@ class BoodskapTransceiver {
     String _firmwareVersion;      // fw_ver
     uint16_t _heartbeatInterval;  // heartbeat
     String _apiBasePath;          // api_path
+    String _otaBasePath;          // ota_path
     String _apiFingerprint;       // api_fp
     String _udpHost;              // udp_host
     uint16_t _udpPort;            // udp_port
